@@ -35,14 +35,15 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     state = SettingsState(locale: locale, themeMode: themeMode);
   }
 
-  Future<void> setLocale(Locale locale) async {
-    await _storage.write('locale_code', locale.languageCode);
+  /// تغيير اللغة وحفظها. يستخدم الطريقة المتزامنة لمنع الأخطاء.
+  void setLocale(Locale locale) {
+    _storage.write('locale_code', locale.languageCode);
     state = state.copyWith(locale: locale);
   }
 
-  Future<void> setThemeMode(ThemeMode mode) async {
-    await _storage.write(
-        'theme_mode', mode == ThemeMode.dark ? 'dark' : 'light');
+  /// تغيير السمة وحفظها.
+  void setThemeMode(ThemeMode mode) {
+    _storage.write('theme_mode', mode == ThemeMode.dark ? 'dark' : 'light');
     state = state.copyWith(themeMode: mode);
   }
 }

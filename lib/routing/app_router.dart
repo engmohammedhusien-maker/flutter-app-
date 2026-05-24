@@ -4,21 +4,25 @@ import 'package:go_router/go_router.dart';
 import 'package:laravel_flutter_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laravel_flutter_app/features/auth/presentation/screens/dashboard_screen.dart';
 import 'package:laravel_flutter_app/features/auth/presentation/screens/login_screen.dart';
-import 'package:laravel_flutter_app/features/settings/presentation/screens/settings_screen.dart';
+import 'package:laravel_flutter_app/features/splash/presentation/screens/splash_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authNotifierProvider);
   final isLoggedIn = authState.user != null;
 
   return GoRouter(
-    initialLocation: isLoggedIn ? '/dashboard' : '/login',
+    initialLocation: '/splash', // البداية من شاشة البداية
     redirect: (context, state) {
       final isLoginPage = state.matchedLocation == '/login';
-      if (!isLoggedIn && !isLoginPage) return '/login';
+      if (!isLoggedIn && state.matchedLocation == '/dashboard') return '/login';
       if (isLoggedIn && isLoginPage) return '/dashboard';
       return null;
     },
     routes: [
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashScreen(),
+      ),
       GoRoute(
         path: '/login',
         pageBuilder: (context, state) => CustomTransitionPage(
@@ -40,10 +44,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             );
           },
         ),
-      ),
-      GoRoute(
-        path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
       ),
       GoRoute(
         path: '/dashboard',

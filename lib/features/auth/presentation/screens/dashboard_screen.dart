@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laravel_flutter_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laravel_flutter_app/features/authorization/presentation/widgets/auth_guard.dart';
@@ -6,14 +7,21 @@ import 'package:laravel_flutter_app/features/settings/presentation/screens/setti
 import 'package:laravel_flutter_app/l10n/app_localizations.dart';
 import 'package:lottie/lottie.dart';
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  DateTime? _lastBackPress;
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
     final user = authState.user;
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
 
     if (authState.isLoading) {
       return Scaffold(
@@ -23,34 +31,56 @@ class DashboardScreen extends ConsumerWidget {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Hero(
-          tag: 'app_title',
-          child: Text('${l10n.welcome} ${user?.name ?? ""}'),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        final now = DateTime.now();
+        if (_lastBackPress == null ||
+            now.difference(_lastBackPress!) > const Duration(seconds: 3)) {
+          _lastBackPress = now;
+          final l10n = AppLocalizations.of(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(l10n.locale.languageCode == 'ar'
+                  ? 'اضغط مرة أخرى للخروج'
+                  : 'Press back again to exit'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Hero(
+            tag: 'app_title',
+            child: Text('${l10n.welcome} ${user?.name ?? ""}'),
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings),
+              tooltip: l10n.settings,
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: l10n.logout,
+              onPressed: () {
+                ref.read(authNotifierProvider.notifier).logout();
+              },
+            ),
+          ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: l10n.settings,
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: l10n.logout,
-            onPressed: () {
-              ref.read(authNotifierProvider.notifier).logout();
-            },
-          ),
-        ],
+        body: user == null
+            ? const Center(child: CircularProgressIndicator())
+            : _DashboardContent(user: user, l10n: l10n),
       ),
-      body: user == null
-          ? const Center(child: CircularProgressIndicator())
-          : _DashboardContent(user: user, l10n: l10n),
     );
   }
 }

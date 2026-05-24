@@ -1,5 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+// أضف هذا الاستيراد
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laravel_flutter_app/core/notifications/notification_service.dart';
 import 'package:laravel_flutter_app/core/settings/settings_provider.dart';
@@ -35,7 +37,13 @@ class MyApp extends ConsumerWidget {
       title: 'Laravel Flutter App',
       debugShowCheckedModeBanner: false,
       locale: settings.locale,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      // 👇 هذا هو الإصلاح: أضفنا تفويضات النظام الأساسية
+      localizationsDelegates: const [
+        ...AppLocalizations.localizationsDelegates,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       supportedLocales: AppLocalizations.supportedLocales,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),

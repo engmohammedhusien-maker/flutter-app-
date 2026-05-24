@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laravel_flutter_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laravel_flutter_app/features/authorization/presentation/widgets/auth_guard.dart';
 import 'package:laravel_flutter_app/features/settings/presentation/screens/settings_screen.dart';
+import 'package:laravel_flutter_app/l10n/app_localizations.dart';
 import 'package:lottie/lottie.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -12,24 +13,12 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authNotifierProvider);
     final user = authState.user;
+    final l10n = AppLocalizations.of(context)!;
 
     if (authState.isLoading) {
       return Scaffold(
-        body: Column(
-          children: [
-            Center(
-              child: Lottie.asset(
-                  'assets/animations/Bubbles Lottie Animation.json',
-                  width: 150),
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () {
-                Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              },
-            ),
-          ],
+        body: Center(
+          child: Lottie.asset('assets/animations/loading.json', width: 150),
         ),
       );
     }
@@ -38,18 +27,21 @@ class DashboardScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Hero(
           tag: 'app_title',
-          child: Text('مرحباً ${user?.name ?? ""}'),
+          child: Text('${l10n.welcome} ${user?.name ?? ""}'),
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
+            tooltip: l10n.settings,
             onPressed: () {
               Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
             },
           ),
           IconButton(
             icon: const Icon(Icons.logout),
+            tooltip: l10n.logout,
             onPressed: () {
               ref.read(authNotifierProvider.notifier).logout();
             },
@@ -57,15 +49,17 @@ class DashboardScreen extends ConsumerWidget {
         ],
       ),
       body: user == null
-          ? const Center(child: Text('لا توجد بيانات'))
-          : _DashboardContent(user: user),
+          ? const Center(child: CircularProgressIndicator())
+          : _DashboardContent(user: user, l10n: l10n),
     );
   }
 }
 
 class _DashboardContent extends StatefulWidget {
   final dynamic user;
-  const _DashboardContent({required this.user});
+  final AppLocalizations l10n;
+
+  const _DashboardContent({required this.user, required this.l10n});
 
   @override
   State<_DashboardContent> createState() => _DashboardContentState();
@@ -111,50 +105,64 @@ class _DashboardContentState extends State<_DashboardContent>
           padding: const EdgeInsets.all(16),
           children: [
             _buildAnimatedItem(
-                0,
-                Card(
-                    child: ListTile(
+              0,
+              Card(
+                child: ListTile(
                   leading: const Icon(Icons.person),
                   title: Text(widget.user.name),
                   subtitle: Text(widget.user.email),
-                ))),
+                ),
+              ),
+            ),
             _buildAnimatedItem(
-                1,
-                Card(
-                    child: ListTile(
+              1,
+              Card(
+                child: ListTile(
                   leading: const Icon(Icons.security),
-                  title: const Text('الأدوار'),
+                  title: Text(widget.l10n.roles),
                   subtitle: Text(
-                      (widget.user.roles as List<dynamic>?)?.join(", ") ??
-                          "لا يوجد"),
-                ))),
-            _buildAnimatedItem(
-                2,
-                Card(
-                    child: ListTile(
-                  leading: const Icon(Icons.vpn_key),
-                  title: const Text('الصلاحيات'),
-                  subtitle: Text(
-                      (widget.user.permissions as List<dynamic>?)?.join(", ") ??
-                          "لا يوجد"),
-                ))),
-            _buildAnimatedItem(
-                3,
-                AuthGuard(
-                  permission: 'posts:create',
-                  fallback: const Card(
-                      child: ListTile(
-                    leading: Icon(Icons.block),
-                    title: Text('لا تملك صلاحية إنشاء منشور'),
-                  )),
-                  child: ElevatedButton.icon(
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('تم إنشاء منشور!')),
-                    ),
-                    icon: const Icon(Icons.add),
-                    label: const Text('إنشاء منشور'),
+                    (widget.user.roles as List<dynamic>?)
+                            ?.map((r) => r.displayName ?? r.name)
+                            .join(", ") ??
+                        "-",
                   ),
-                )),
+                ),
+              ),
+            ),
+            _buildAnimatedItem(
+              2,
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.vpn_key),
+                  title: Text(widget.l10n.permissions),
+                  subtitle: Text(
+                    (widget.user.permissions as List<dynamic>?)
+                            ?.map((p) => p.name)
+                            .join(", ") ??
+                        "-",
+                  ),
+                ),
+              ),
+            ),
+            _buildAnimatedItem(
+              3,
+              AuthGuard(
+                permission: 'posts:create',
+                fallback: Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.block),
+                    title: Text(widget.l10n.noPermission),
+                  ),
+                ),
+                child: ElevatedButton.icon(
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(widget.l10n.createPost)),
+                  ),
+                  icon: const Icon(Icons.add),
+                  label: Text(widget.l10n.createPost),
+                ),
+              ),
+            ),
           ],
         );
       },
@@ -171,14 +179,18 @@ class _DashboardContentState extends State<_DashboardContent>
             end: Offset.zero,
           ).animate(_animations[index]),
           child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4), child: child),
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: child,
+          ),
         ),
       );
     } else {
       return ScaleTransition(
         scale: _animations[index],
         child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4), child: child),
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: child,
+        ),
       );
     }
   }

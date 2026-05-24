@@ -7,19 +7,16 @@ import 'package:laravel_flutter_app/core/security/secure_storage_helper.dart';
 import 'package:laravel_flutter_app/features/auth/data/models/user_model.dart';
 import 'package:laravel_flutter_app/features/auth/data/repositories/auth_repository.dart';
 
-// مفاتيح التخزين الآمن
-const _keyEmail = 'saved_email';
-const _keyPassword = 'saved_password';
-const _keyBiometricEnabled = 'biometric_enabled';
+const _keyBiometricEmail = 'biometric_email';
+const _keyBiometricPassword = 'biometric_password';
 
 class AuthState {
   final UserModel? user;
   final bool isLoading;
   final String? error;
   final List<String> permissionNames;
-  final bool isBiometricAvailable;
-  final bool hasSavedCredentials;
-  final bool isBiometricEnabled;
+  final bool isBiometricAvailable; // هل يدعم الجهاز البصمة؟
+  final String? biometricOwnerEmail; // البريد المفعل له البصمة (إن وجد)
 
   AuthState({
     this.user,
@@ -27,8 +24,7 @@ class AuthState {
     this.error,
     List<String>? permissionNames,
     this.isBiometricAvailable = false,
-    this.hasSavedCredentials = false,
-    this.isBiometricEnabled = false,
+    this.biometricOwnerEmail,
   }) : permissionNames = permissionNames ?? [];
 
   AuthState copyWith({
@@ -37,8 +33,7 @@ class AuthState {
     String? error,
     List<String>? permissionNames,
     bool? isBiometricAvailable,
-    bool? hasSavedCredentials,
-    bool? isBiometricEnabled,
+    String? biometricOwnerEmail,
   }) {
     return AuthState(
       user: user ?? this.user,
@@ -46,10 +41,13 @@ class AuthState {
       error: error,
       permissionNames: permissionNames ?? this.permissionNames,
       isBiometricAvailable: isBiometricAvailable ?? this.isBiometricAvailable,
-      hasSavedCredentials: hasSavedCredentials ?? this.hasSavedCredentials,
-      isBiometricEnabled: isBiometricEnabled ?? this.isBiometricEnabled,
+      biometricOwnerEmail: biometricOwnerEmail ?? this.biometricOwnerEmail,
     );
   }
+
+  /// هل الحساب الحالي هو صاحب البصمة؟
+  bool get isCurrentUserBiometricOwner =>
+      user != null && user!.email == biometricOwnerEmail;
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
@@ -66,17 +64,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> _init() async {
-    // قراءة حالة البصمة والتخزين
-    final email = await _storage.read(_keyEmail);
-    final hasCreds = email != null && email.isNotEmpty;
     final biometricAvailable = await _biometricService.isBiometricAvailable();
-    final biometricEnabled =
-        (await _storage.read(_keyBiometricEnabled)) == 'true';
-
+    final ownerEmail = await _storage.read(_keyBiometricEmail);
     state = state.copyWith(
-      isBiometricAvailable: biometricAvailable && hasCreds,
-      hasSavedCredentials: hasCreds,
-      isBiometricEnabled: biometricEnabled,
+      isBiometricAvailable: biometricAvailable,
+      biometricOwnerEmail: ownerEmail,
     );
   }
 
@@ -123,25 +115,23 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  // --- تفعيل البصمة بعد التحقق من كلمة المرور ---
+  // --- تفعيل البصمة للحساب الحالي (يتحقق من كلمة المرور) ---
   Future<String?> enableBiometricWithPassword(
       String email, String password) async {
-    // نحاول تسجيل الدخول بهذه البيانات (بدون التأثير على الحالة الحالية)
+    // إذا كان هناك مالك سابق غير هذا الحساب، نمنع التفعيل ما لم يتم التعطيل أولاً
+    final owner = state.biometricOwnerEmail;
+    if (owner != null && owner != email) {
+      return 'البصمة مفعلة لحساب آخر. الرجاء تعطيلها أولاً.';
+    }
+
     try {
-      final result = await _authRepository.login(email, password);
-      // إذا نجح الدخول، فالبيانات صحيحة، احفظها للبصمة
-      await _storage.write(_keyEmail, email);
-      await _storage.write(_keyPassword, password);
-      await _storage.write(_keyBiometricEnabled, 'true');
-      final biometricAvailable = await _biometricService.isBiometricAvailable();
-      state = state.copyWith(
-        isBiometricAvailable: biometricAvailable,
-        hasSavedCredentials: true,
-        isBiometricEnabled: true,
-      );
-      return null; // لا خطأ
+      await _authRepository.login(email, password);
+      // حفظ بيانات البصمة
+      await _storage.write(_keyBiometricEmail, email);
+      await _storage.write(_keyBiometricPassword, password);
+      state = state.copyWith(biometricOwnerEmail: email);
+      return null; // نجاح
     } on DioException catch (e) {
-      // استخراج رسالة الخطأ
       String message = 'كلمة المرور غير صحيحة';
       if (e.response?.data is Map) {
         final data = e.response!.data as Map<String, dynamic>;
@@ -158,30 +148,50 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  // --- تعطيل البصمة من الإعدادات ---
+  // --- تعطيل البصمة (يحذف بيانات المالك) ---
   Future<void> disableBiometric() async {
-    await _storage.delete(_keyBiometricEnabled);
-    state = state.copyWith(isBiometricEnabled: false);
+    await _storage.delete(_keyBiometricEmail);
+    await _storage.delete(_keyBiometricPassword);
+    state = state.copyWith(biometricOwnerEmail: null);
   }
 
-  // --- الدخول بالبصمة ---
-  Future<void> biometricLogin() async {
-    if (!state.isBiometricEnabled) {
-      state =
-          state.copyWith(error: 'الدخول بالبصمة غير مفعل. فعّله من الإعدادات.');
-      return;
+  // --- استبدال البصمة: يستبدل الحساب السابق بالحساب الحالي ---
+  Future<String?> replaceBiometricOwner(String email, String password) async {
+    try {
+      await _authRepository.login(email, password);
+      await _storage.write(_keyBiometricEmail, email);
+      await _storage.write(_keyBiometricPassword, password);
+      state = state.copyWith(biometricOwnerEmail: email);
+      return null;
+    } on DioException catch (e) {
+      String message = 'كلمة المرور غير صحيحة';
+      if (e.response?.data is Map) {
+        final data = e.response!.data as Map<String, dynamic>;
+        if (data['errors'] is String && (data['errors'] as String).isNotEmpty) {
+          message = data['errors'];
+        } else if (data['message'] is String &&
+            (data['message'] as String).isNotEmpty) {
+          message = data['message'];
+        }
+      }
+      return message;
+    } catch (e) {
+      return 'حدث خطأ غير متوقع';
     }
+  }
 
-    final email = await _storage.read(_keyEmail);
-    final password = await _storage.read(_keyPassword);
+  // --- الدخول بالبصمة (يقرأ البريد المحفوظ الوحيد) ---
+  Future<void> biometricLogin() async {
+    final email = await _storage.read(_keyBiometricEmail);
+    final password = await _storage.read(_keyBiometricPassword);
 
     if (email == null || password == null) {
-      state = state.copyWith(error: 'لا توجد بيانات محفوظة');
+      state = state.copyWith(error: 'لا توجد بصمة محفوظة');
       return;
     }
 
     final authenticated = await _biometricService.authenticate(
-      reason: 'استخدم بصمتك لتسجيل الدخول',
+      reason: 'استخدم بصمتك لتسجيل الدخول كـ $email',
     );
     if (!authenticated) {
       state = state.copyWith(error: 'فشل التحقق من البصمة');
@@ -191,18 +201,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await login(email, password);
   }
 
-  // --- حذف كل بيانات البصمة ---
-  Future<void> clearSavedCredentials() async {
-    await _storage.delete(_keyEmail);
-    await _storage.delete(_keyPassword);
-    await _storage.delete(_keyBiometricEnabled);
-    state = state.copyWith(
-      isBiometricAvailable: false,
-      hasSavedCredentials: false,
-      isBiometricEnabled: false,
-    );
-  }
-
   // --- تسجيل الخروج ---
   Future<void> logout() async {
     try {
@@ -210,10 +208,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     } catch (_) {}
     await _storage.delete('access_token');
     await _storage.delete('refresh_token');
-    // إعادة الحالة الأساسية
-    state = AuthState();
-    // إعادة استعلام حالة البصمة بعد الخروج
-    await _init();
+    final ownerEmail = await _storage.read(_keyBiometricEmail);
+    final biometricAvailable = await _biometricService.isBiometricAvailable();
+    state = AuthState(
+      biometricOwnerEmail: ownerEmail,
+      isBiometricAvailable: biometricAvailable,
+    );
   }
 
   // --- التحقق من الجلسة عند بدء التشغيل ---
@@ -223,7 +223,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       try {
         final user = await _authRepository.getUser();
         final permNames = user.getAllPermissionNames();
-        state = AuthState(user: user, permissionNames: permNames);
+        final ownerEmail = state.biometricOwnerEmail;
+        state = AuthState(
+          user: user,
+          permissionNames: permNames,
+          biometricOwnerEmail: ownerEmail,
+        );
       } catch (e) {
         await _storage.delete('access_token');
         state = AuthState();

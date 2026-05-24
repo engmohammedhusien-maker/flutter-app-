@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:laravel_flutter_app/core/settings/settings_provider.dart';
 import 'package:laravel_flutter_app/features/auth/presentation/providers/auth_provider.dart';
+import 'package:laravel_flutter_app/features/settings/presentation/screens/settings_screen.dart';
+import 'package:laravel_flutter_app/l10n/app_localizations.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -38,9 +41,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } else {
       _passwordController.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _emailController.text = email;
-        }
+        if (mounted) _emailController.text = email;
       });
     }
   }
@@ -52,14 +53,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
-
-    // زر البصمة يظهر فقط إذا كانت البيانات محفوظة والميزة مفعلة والجهاز يدعمها
-    final showBiometricButton = authState.hasSavedCredentials &&
-        authState.isBiometricEnabled &&
-        authState.isBiometricAvailable;
+    final l10n = AppLocalizations.of(context)!;
+    final hasBiometricOwner = authState.biometricOwnerEmail != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('تسجيل الدخول')),
+      appBar: AppBar(
+        title: Text(l10n.login),
+        actions: [
+          // زر تبديل اللغة السريع
+          IconButton(
+            icon: const Icon(Icons.language),
+            tooltip: 'Change Language',
+            onPressed: () {
+              final currentLocale = ref.read(settingsProvider).locale;
+              final newLocale = currentLocale.languageCode == 'ar'
+                  ? const Locale('en')
+                  : const Locale('ar');
+              ref.read(settingsProvider.notifier).setLocale(newLocale);
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: l10n.settings,
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -71,26 +94,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 children: [
                   TextFormField(
                     controller: _emailController,
-                    decoration: const InputDecoration(
-                      labelText: 'البريد الإلكتروني',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.emailLabel,
+                      border: const OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.emailAddress,
                     autofillHints: const [AutofillHints.email],
                     validator: (v) =>
-                        v == null || v.trim().isEmpty ? 'أدخل البريد' : null,
+                        v == null || v.trim().isEmpty ? l10n.enterEmail : null,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _passwordController,
-                    decoration: const InputDecoration(
-                      labelText: 'كلمة المرور',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.passwordLabel,
+                      border: const OutlineInputBorder(),
                     ),
                     obscureText: true,
                     autofillHints: const [AutofillHints.password],
                     validator: (v) => v == null || v.trim().isEmpty
-                        ? 'أدخل كلمة المرور'
+                        ? l10n.enterPassword
                         : null,
                   ),
                   const SizedBox(height: 24),
@@ -102,14 +125,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       children: [
                         ElevatedButton(
                           onPressed: _login,
-                          child: const Text('دخول'),
+                          child: Text(l10n.loginButton),
                         ),
-                        if (showBiometricButton) ...[
+                        if (hasBiometricOwner &&
+                            authState.isBiometricAvailable) ...[
                           const SizedBox(width: 12),
                           IconButton(
                             icon: const Icon(Icons.fingerprint),
                             iconSize: 36,
-                            tooltip: 'الدخول بالبصمة',
+                            tooltip: l10n.biometricLogin,
                             onPressed: _biometricLogin,
                             style: IconButton.styleFrom(
                               backgroundColor: Theme.of(context)

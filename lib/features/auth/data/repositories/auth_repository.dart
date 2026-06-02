@@ -1,12 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:laravel_flutter_app/core/network/api_client.dart';
 import 'package:laravel_flutter_app/features/auth/data/models/token_model.dart';
 import 'package:laravel_flutter_app/features/auth/data/models/user_model.dart';
 
 abstract class IAuthRepository {
-  /// يسجل الدخول ويعيد بيانات المستخدم مع التوكن
   Future<AuthResult> login(String email, String password);
+  Future<UserModel> getUser();
   Future<void> logout();
-  Future<UserModel> getUser(); // لفحص صلاحية التوكن عند بدء التشغيل
   Future<TokenModel> refreshToken(String refreshToken);
 }
 
@@ -22,40 +22,50 @@ class AuthRepository implements IAuthRepository {
   AuthRepository(this._apiClient);
 
   @override
+  @override
   Future<AuthResult> login(String email, String password) async {
     final response = await _apiClient.post('login', data: {
-      // تغيير المسار إلى login
       'email': email,
       'password': password,
     });
 
-    final data = response.data['data']; // الوصول إلى حقل data
-    final userJson = data['user'];
-    final tokenJson = data['token'];
+    debugPrint('✅ Login response data: ${response.data}');
+
+    final Map<String, dynamic> responseData = response.data;
+    final Map<String, dynamic> data = responseData['data'];
+    final Map<String, dynamic> userJson = data['user'];
+
+    // محاولة قراءة 'token' أولاً، ثم 'tokens'
+    Map<String, dynamic>? tokenJson;
+    if (data['token'] is Map<String, dynamic>) {
+      tokenJson = data['token'];
+    } else if (data['tokens'] is Map<String, dynamic>) {
+      tokenJson = data['tokens'];
+    } else {
+      throw Exception('Response missing token field');
+    }
 
     final user = UserModel.fromJson(userJson);
-    final token = TokenModel.fromJson(tokenJson);
+    final token = TokenModel.fromJson(tokenJson!);
 
     return AuthResult(user: user, token: token);
   }
 
   @override
   Future<UserModel> getUser() async {
-    final response = await _apiClient.get('user'); // المسار /user
+    final response = await _apiClient.get('user');
     final data = response.data['data'];
-    // بعض إصدارات Laravel ترجع المستخدم مباشرة داخل data، وقد يكون كائن مستخدم
     return UserModel.fromJson(data);
   }
 
   @override
   Future<void> logout() async {
-    await _apiClient.post('logout'); // تغيير المسار إلى logout
+    await _apiClient.post('logout');
   }
 
   @override
   Future<TokenModel> refreshToken(String refreshToken) async {
     final response = await _apiClient.post('refresh-token', data: {
-      // refresh-token
       'refresh_token': refreshToken,
     });
     final data = response.data['data'];

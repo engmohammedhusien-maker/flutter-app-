@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laravel_flutter_app/core/settings/settings_provider.dart';
+import 'package:laravel_flutter_app/core/utils/back_press_handler.dart';
 import 'package:laravel_flutter_app/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laravel_flutter_app/features/settings/presentation/screens/settings_screen.dart';
 import 'package:laravel_flutter_app/l10n/app_localizations.dart';
@@ -39,38 +39,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final authState = ref.read(authNotifierProvider);
 
     if (authState.user != null) {
+      // نجاح: مسح الحقلين
       _emailController.clear();
       _passwordController.clear();
     } else if (authState.error != null) {
-      // final l10n = AppLocalizations.of(context);
+      final l10n = AppLocalizations.of(context);
+      final displayError = l10n.translateAuthError(authState.error!);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authState.error!),
+          content: Text(displayError),
           backgroundColor: Colors.red.shade700,
         ),
       );
-      // إلغاء المسح السابق (لا نمسح شيء)
-      // إعادة تعيين المؤشر لآخر النص
-      _passwordController.clear();
-      _passwordController.text = password;
-      _passwordController.selection = TextSelection.fromPosition(
-        TextPosition(offset: password.length),
-      );
+      // لا تنسى إرجاع كلمة المرور كما كانت (إن أردت)
     }
   }
 
+  // Future<void> _biometricLogin() async {
+  //   await ref.read(authNotifierProvider.notifier).biometricLogin();
+  //   if (!mounted) return;
+  //   final authState = ref.read(authNotifierProvider);
+  //   if (authState.error != null) {
+  //     final l10n = AppLocalizations.of(context);
+  //     final displayError = l10n.translateAuthError(authState.error!);
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text(displayError),
+  //         backgroundColor: Colors.red.shade700,
+  //       ),
+  //     );
+  //   }
+  // }
   Future<void> _biometricLogin() async {
-    await ref.read(authNotifierProvider.notifier).biometricLogin();
+    final success =
+        await ref.read(authNotifierProvider.notifier).biometricLogin();
     if (!mounted) return;
-    final authState = ref.read(authNotifierProvider);
-    if (authState.error != null) {
-      // final l10n = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authState.error!),
-          backgroundColor: Colors.red.shade700,
-        ),
-      );
+    // إذا نجح الدخول، GoRouter سيتولى التوجيه تلقائياً، لا حاجة لعرض شيء.
+    // إذا فشل (بسبب إلغاء البصمة مثلاً)، لا نظهر أي خطأ.
+    if (!success) {
+      // يمكننا تجاهل الأمر بهدوء، أو عرض رسالة بسيطة إذا أردت.
     }
   }
 
@@ -80,27 +87,40 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final l10n = AppLocalizations.of(context);
     final hasBiometricOwner = authState.biometricOwnerEmail != null;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        final now = DateTime.now();
-        if (_lastBackPress == null ||
-            now.difference(_lastBackPress!) > const Duration(seconds: 3)) {
-          _lastBackPress = now;
-          final l10n = AppLocalizations.of(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(l10n.locale.languageCode == 'ar'
-                  ? 'اضغط مرة أخرى للخروج'
-                  : 'Press back again to exit'),
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        } else {
-          SystemNavigator.pop();
-        }
-      },
+    // return PopScope(
+    //   canPop: false,
+    //   onPopInvokedWithResult: (didPop, result) {
+    //     if (didPop) return;
+    //     final now = DateTime.now();
+    //     if (_lastBackPress == null ||
+    //         now.difference(_lastBackPress!) > const Duration(seconds: 3)) {
+    //       _lastBackPress = now;
+    //       ScaffoldMessenger.of(context).showSnackBar(
+    //         SnackBar(
+    //           content: Text(l10n.locale.languageCode == 'ar'
+    //               ? 'اضغط مرة أخرى للخروج'
+    //               : 'Press back again to exit'),
+    //           duration: const Duration(seconds: 3),
+    //         ),
+    //       );
+    //     } else {
+    //       try {
+    //         SystemNavigator.pop();
+    //       } catch (_) {
+    //         exit(0);
+    //       }
+    //     }
+    //   },
+    // ignore: deprecated_member_use
+    return WillPopScope(
+      onWillPop: () => handleBackPress(
+        context: context,
+        lastBackPress: _lastBackPress,
+        onLastBackPressUpdate: (time) => _lastBackPress = time,
+        messageBackAgain: l10n.locale.languageCode == 'ar'
+            ? 'اضغط مرة أخرى للخروج'
+            : 'Press back again to exit',
+      ),
       child: Scaffold(
         appBar: AppBar(
           title: Text(l10n.login),
@@ -170,11 +190,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ? Icons.visibility_off
                                 : Icons.visibility,
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
+                          onPressed: () => setState(
+                              () => _obscurePassword = !_obscurePassword),
                         ),
                       ),
                       obscureText: _obscurePassword,
@@ -182,6 +199,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) {
                           return l10n.enterPassword;
+                        }
+                        if (v.trim().length < 8) {
+                          return l10n.passwordTooShortLocal;
                         }
                         return null;
                       },

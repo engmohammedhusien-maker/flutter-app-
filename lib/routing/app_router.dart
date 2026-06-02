@@ -7,15 +7,23 @@ import 'package:laravel_flutter_app/features/auth/presentation/screens/login_scr
 import 'package:laravel_flutter_app/features/splash/presentation/screens/splash_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authNotifierProvider);
-  final isLoggedIn = authState.user != null;
+  // نراقب فقط وجود المستخدم، وليس كامل الحالة
+  final user = ref.watch(authNotifierProvider.select((state) => state.user));
+  final isLoggedIn = user != null;
 
   return GoRouter(
-    initialLocation: '/splash', // البداية من شاشة البداية
+    initialLocation: '/splash',
     redirect: (context, state) {
       final isLoginPage = state.matchedLocation == '/login';
-      if (!isLoggedIn && state.matchedLocation == '/dashboard') return '/login';
-      if (isLoggedIn && isLoginPage) return '/dashboard';
+      // إذا لم يسجل دخوله وكان في أي صفحة غير تسجيل الدخول، اذهب إلى تسجيل الدخول
+      if (!isLoggedIn && state.matchedLocation != '/login') {
+        return '/login';
+      }
+      // إذا كان مسجلاً وكان على صفحة تسجيل الدخول، اذهب إلى لوحة التحكم
+      if (isLoggedIn && isLoginPage) {
+        return '/dashboard';
+      }
+      // لا إعادة توجيه
       return null;
     },
     routes: [

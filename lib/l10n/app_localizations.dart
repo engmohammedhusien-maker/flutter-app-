@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:laravel_flutter_app/features/auth/presentation/providers/auth_provider.dart';
 
 class AppLocalizations {
   final Locale locale;
 
   AppLocalizations(this.locale);
 
-  /// ترجع [AppLocalizations] من شجرة الواجهة. ترمي استثناء إذا لم توجد.
   static AppLocalizations of(BuildContext context) {
     final localizations =
         Localizations.of<AppLocalizations>(context, AppLocalizations);
@@ -19,9 +19,8 @@ class AppLocalizations {
   static const LocalizationsDelegate<AppLocalizations> delegate =
       _AppLocalizationsDelegate();
 
-  // ---------- النصوص المترجمة ----------
+  // ---------- النصوص الأساسية ----------
   String get appTitle => 'Laravel Flutter App';
-
   String get login => locale.languageCode == 'ar' ? 'تسجيل الدخول' : 'Login';
   String get emailLabel =>
       locale.languageCode == 'ar' ? 'البريد الإلكتروني' : 'Email';
@@ -50,9 +49,9 @@ class AppLocalizations {
   String get biometricDeactivated => locale.languageCode == 'ar'
       ? 'تم تعطيل الدخول بالبصمة'
       : 'Biometric login deactivated';
-  String get invalidCredentials => locale.languageCode == 'ar'
-      ? 'بيانات الدخول غير صحيحة'
-      : 'Invalid credentials';
+  String get biometricFailed => locale.languageCode == 'ar'
+      ? 'فشل التحقق من البصمة'
+      : 'Biometric authentication failed';
   String get enterEmail =>
       locale.languageCode == 'ar' ? 'أدخل البريد' : 'Enter email';
   String get enterPassword =>
@@ -71,9 +70,55 @@ class AppLocalizations {
   String get noPermission => locale.languageCode == 'ar'
       ? 'لا تملك صلاحية إنشاء منشور'
       : 'You do not have permission';
-  String get biometricFailed => locale.languageCode == 'ar'
-      ? 'فشل التحقق من البصمة'
-      : 'Biometric authentication failed';
+  String get replaceBiometric => locale.languageCode == 'ar'
+      ? 'استبدال حساب البصمة'
+      : 'Replace biometric account';
+  String get confirmBiometric =>
+      locale.languageCode == 'ar' ? 'تفعيل البصمة' : 'Enable biometric';
+  // ---------- رسائل الخطأ المترجمة ----------
+  String get invalidCredentials => locale.languageCode == 'ar'
+      ? 'البريد الالكتروني او كلمة المرور خطأ'
+      : 'Incorrect email address or password';
+
+  String get passwordTooShortLocal => locale.languageCode == 'ar'
+      ? 'كلمة المرور قصيرة (8 أحرف على الأقل)'
+      : 'Password too short (min 8 characters)';
+
+  // ---------- دالة ترجمة AuthError ----------
+  String translateAuthError(AuthError error) {
+    switch (error) {
+      case AuthError.serverUnavailable:
+        return locale.languageCode == 'ar'
+            ? 'الخادم غير متاح حالياً'
+            : 'Server is currently unavailable';
+      case AuthError.invalidCredentials:
+        return invalidCredentials;
+      case AuthError.emailRequired:
+        return locale.languageCode == 'ar'
+            ? 'البريد الإلكتروني مطلوب'
+            : 'Email is required';
+      case AuthError.emailInvalid:
+        return locale.languageCode == 'ar'
+            ? 'صيغة البريد غير صحيحة'
+            : 'Invalid email format';
+      case AuthError.passwordRequired:
+        return locale.languageCode == 'ar'
+            ? 'كلمة المرور مطلوبة'
+            : 'Password is required';
+      case AuthError.passwordTooShort:
+        return locale.languageCode == 'ar'
+            ? 'كلمة المرور قصيرة (8 أحرف على الأقل)'
+            : 'Password too short (min 8 characters)';
+      case AuthError.serverError:
+        return locale.languageCode == 'ar' ? 'خطأ في الخادم' : 'Server error';
+      case AuthError.networkError:
+        return locale.languageCode == 'ar' ? 'خطأ في الاتصال' : 'Network error';
+      case AuthError.unknown:
+        return locale.languageCode == 'ar'
+            ? 'حدث خطأ غير متوقع'
+            : 'An unexpected error occurred';
+    }
+  }
 
   static const localizationsDelegates = <LocalizationsDelegate<dynamic>>[
     _AppLocalizationsDelegate(),

@@ -10,13 +10,26 @@ import 'package:laravel_flutter_app/features/auth/data/repositories/auth_reposit
 const _keyBiometricEmail = 'biometric_email';
 const _keyBiometricPassword = 'biometric_password';
 
+enum AuthError {
+  invalidCredentials,
+  emailRequired,
+  emailInvalid,
+  passwordRequired,
+  passwordTooShort,
+  serverError,
+  networkError,
+  unknown,
+  serverUnavailable,
+}
+
 class AuthState {
   final UserModel? user;
   final bool isLoading;
-  final String? error;
+  final AuthError? error;
   final List<String> permissionNames;
-  final bool isBiometricAvailable; // هل يدعم الجهاز البصمة؟
-  final String? biometricOwnerEmail; // البريد المفعل له البصمة (إن وجد)
+  final bool isBiometricAvailable;
+  final String? biometricOwnerEmail;
+  final bool isBiometricActive;
 
   AuthState({
     this.user,
@@ -25,15 +38,17 @@ class AuthState {
     List<String>? permissionNames,
     this.isBiometricAvailable = false,
     this.biometricOwnerEmail,
+    this.isBiometricActive = false,
   }) : permissionNames = permissionNames ?? [];
 
   AuthState copyWith({
     UserModel? user,
     bool? isLoading,
-    String? error,
+    AuthError? error,
     List<String>? permissionNames,
     bool? isBiometricAvailable,
     String? biometricOwnerEmail,
+    bool? isBiometricActive,
   }) {
     return AuthState(
       user: user ?? this.user,
@@ -42,10 +57,10 @@ class AuthState {
       permissionNames: permissionNames ?? this.permissionNames,
       isBiometricAvailable: isBiometricAvailable ?? this.isBiometricAvailable,
       biometricOwnerEmail: biometricOwnerEmail ?? this.biometricOwnerEmail,
+      isBiometricActive: isBiometricActive ?? this.isBiometricActive,
     );
   }
 
-  /// هل الحساب الحالي هو صاحب البصمة؟
   bool get isCurrentUserBiometricOwner =>
       user != null && user!.email == biometricOwnerEmail;
 }
@@ -69,10 +84,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(
       isBiometricAvailable: biometricAvailable,
       biometricOwnerEmail: ownerEmail,
+      isBiometricActive: ownerEmail != null,
     );
   }
 
-  // --- تسجيل الدخول العادي ---
   Future<void> login(String email, String password) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
@@ -88,124 +103,223 @@ class AuthNotifier extends StateNotifier<AuthState> {
         permissionNames: permNames,
       );
     } on DioException catch (e) {
-      String message = 'حدث خطأ في الاتصال';
-      if (e.response?.data is Map) {
-        final data = e.response!.data as Map<String, dynamic>;
-        debugPrint('❌ Error response: $data');
-        if (data['errors'] is String && (data['errors'] as String).isNotEmpty) {
-          message = data['errors'];
-        } else if (data['errors'] is Map) {
-          final errorsMap = data['errors'] as Map;
-          if (errorsMap.isNotEmpty) {
-            final firstValue = errorsMap.values.first;
-            if (firstValue is List && firstValue.isNotEmpty) {
-              message = firstValue.first.toString();
-            } else {
-              message = firstValue.toString();
-            }
-          }
-        } else if (data['message'] is String &&
-            (data['message'] as String).isNotEmpty) {
-          message = data['message'];
-        }
-      }
-      state = state.copyWith(isLoading: false, error: message);
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'حدث خطأ غير متوقع');
+      debugPrint('❌ DioException: ${e.message}');
+      state = state.copyWith(
+        isLoading: false,
+        error: _mapDioErrorToAuthError(e),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('❌ Unexpected error during login: $e');
+      debugPrint('❌ StackTrace: $stackTrace');
+      state = state.copyWith(
+        isLoading: false,
+        error: AuthError
+            .invalidCredentials, // نتركه unknown ليتم التعامل معه في الشاشة
+      );
     }
   }
 
-  // --- تفعيل البصمة للحساب الحالي (يتحقق من كلمة المرور) ---
-  Future<String?> enableBiometricWithPassword(
+  // AuthError _mapDioErrorToAuthError(DioException e) {
+  //   final statusCode = e.response?.statusCode;
+  //   final responseData = e.response?.data;
+
+  //   // 1. فحص خطأ ngrok
+  //   try {
+  //     if (statusCode == 404 &&
+  //         e.response?.headers.map != null &&
+  //         e.response!.headers.map['ngrok-error-code'] != null) {
+  //       return AuthError.serverUnavailable;
+  //     }
+  //   } catch (_) {}
+
+  //   // 2. أخطاء الشبكة
+  //   if (e.type == DioExceptionType.connectionError ||
+  //       e.type == DioExceptionType.connectionTimeout ||
+  //       e.type == DioExceptionType.receiveTimeout) {
+  //     return AuthError.serverUnavailable;
+  //   }
+
+  //   // 3. أخطاء 422 (تحقق من صحة البيانات)
+  //   if (statusCode == 422) {
+  //     String? fieldError;
+  //     if (responseData is Map<String, dynamic>) {
+  //       final errors = responseData['errors'];
+  //       if (errors is Map && errors.isNotEmpty) {
+  //         final firstValue = errors.values.first;
+  //         fieldError = (firstValue is List && firstValue.isNotEmpty)
+  //             ? firstValue.first.toString()
+  //             : firstValue.toString();
+  //       } else if (errors is String && errors.isNotEmpty) {
+  //         fieldError = errors;
+  //       }
+  //     }
+
+  //     // تحقق من رسائل محددة
+  //     if (fieldError != null) {
+  //       if (fieldError.contains('email field is required') ||
+  //           fieldError.contains('email field does not exist')) {
+  //         return AuthError.emailRequired;
+  //       }
+  //       if (fieldError.contains('valid email')) {
+  //         return AuthError.emailInvalid;
+  //       }
+  //       if (fieldError.contains('password')) {
+  //         return fieldError.contains('min') ||
+  //                 fieldError.contains('8 characters')
+  //             ? AuthError.passwordTooShort
+  //             : AuthError.passwordRequired;
+  //       }
+  //     }
+
+  //     // لأي خطأ 422 آخر، نعتبره بيانات دخول خاطئة
+  //     return AuthError.invalidCredentials;
+  //   }
+
+  //   // 4. أي خطأ 4xx آخر
+  //   if (statusCode != null && statusCode >= 400 && statusCode < 500) {
+  //     return AuthError.invalidCredentials;
+  //   }
+
+  //   // 5. أخطاء الخادم
+  //   if (statusCode != null && statusCode >= 500) {
+  //     return AuthError.serverError;
+  //   }
+
+  //   // 6. غير معروف
+  //   return AuthError.unknown;
+  // }
+  AuthError _mapDioErrorToAuthError(DioException e) {
+    final statusCode = e.response?.statusCode;
+
+    // 1. فحص خطأ ngrok
+    try {
+      if (statusCode == 404 &&
+          e.response?.headers.map != null &&
+          e.response!.headers.map['ngrok-error-code'] != null) {
+        return AuthError.serverUnavailable;
+      }
+    } catch (_) {}
+
+    // 2. أخطاء الشبكة
+    if (e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      return AuthError.serverUnavailable;
+    }
+
+    // 3. أي خطأ 4xx (بما في ذلك 422) نعتبره بيانات اعتماد خاطئة
+    if (statusCode != null && statusCode >= 400 && statusCode < 500) {
+      return AuthError.invalidCredentials;
+    }
+
+    // 4. أخطاء الخادم
+    if (statusCode != null && statusCode >= 500) {
+      return AuthError.serverError;
+    }
+
+    // 5. غير معروف
+    return AuthError.unknown;
+  }
+
+  Future<AuthError?> enableBiometricWithPassword(
       String email, String password) async {
-    // إذا كان هناك مالك سابق غير هذا الحساب، نمنع التفعيل ما لم يتم التعطيل أولاً
     final owner = state.biometricOwnerEmail;
     if (owner != null && owner != email) {
-      return 'البصمة مفعلة لحساب آخر. الرجاء تعطيلها أولاً.';
+      return AuthError.unknown;
     }
 
     try {
       await _authRepository.login(email, password);
-      // حفظ بيانات البصمة
       await _storage.write(_keyBiometricEmail, email);
       await _storage.write(_keyBiometricPassword, password);
-      state = state.copyWith(biometricOwnerEmail: email);
-      return null; // نجاح
-    } on DioException catch (e) {
-      String message = 'كلمة المرور غير صحيحة';
-      if (e.response?.data is Map) {
-        final data = e.response!.data as Map<String, dynamic>;
-        if (data['errors'] is String && (data['errors'] as String).isNotEmpty) {
-          message = data['errors'];
-        } else if (data['message'] is String &&
-            (data['message'] as String).isNotEmpty) {
-          message = data['message'];
-        }
-      }
-      return message;
-    } catch (e) {
-      return 'حدث خطأ غير متوقع';
-    }
-  }
-
-  // --- تعطيل البصمة (يحذف بيانات المالك) ---
-  Future<void> disableBiometric() async {
-    await _storage.delete(_keyBiometricEmail);
-    await _storage.delete(_keyBiometricPassword);
-    state = state.copyWith(biometricOwnerEmail: null);
-  }
-
-  // --- استبدال البصمة: يستبدل الحساب السابق بالحساب الحالي ---
-  Future<String?> replaceBiometricOwner(String email, String password) async {
-    try {
-      await _authRepository.login(email, password);
-      await _storage.write(_keyBiometricEmail, email);
-      await _storage.write(_keyBiometricPassword, password);
-      state = state.copyWith(biometricOwnerEmail: email);
+      state = state.copyWith(
+        biometricOwnerEmail: email,
+        isBiometricActive: true,
+      );
       return null;
     } on DioException catch (e) {
-      String message = 'كلمة المرور غير صحيحة';
-      if (e.response?.data is Map) {
-        final data = e.response!.data as Map<String, dynamic>;
-        if (data['errors'] is String && (data['errors'] as String).isNotEmpty) {
-          message = data['errors'];
-        } else if (data['message'] is String &&
-            (data['message'] as String).isNotEmpty) {
-          message = data['message'];
-        }
-      }
-      return message;
+      return _mapDioErrorToAuthError(e);
     } catch (e) {
-      return 'حدث خطأ غير متوقع';
+      return AuthError.unknown;
     }
   }
 
-  // --- الدخول بالبصمة (يقرأ البريد المحفوظ الوحيد) ---
-  Future<void> biometricLogin() async {
+  Future<void> disableBiometric() async {
+    try {
+      await _storage.delete(_keyBiometricEmail);
+      await _storage.delete(_keyBiometricPassword);
+      state = state.copyWith(
+        biometricOwnerEmail: null,
+        isBiometricActive: false,
+      );
+    } catch (e) {
+      debugPrint('Error disabling biometric: $e');
+    }
+  }
+
+  Future<AuthError?> replaceBiometricOwner(
+      String email, String password) async {
+    try {
+      await _authRepository.login(email, password);
+      await _storage.write(_keyBiometricEmail, email);
+      await _storage.write(_keyBiometricPassword, password);
+      state = state.copyWith(
+        biometricOwnerEmail: email,
+        isBiometricActive: true,
+      );
+      return null;
+    } on DioException catch (e) {
+      return _mapDioErrorToAuthError(e);
+    } catch (e) {
+      return AuthError.unknown;
+    }
+  }
+
+  /// محاولة الدخول بالبصمة.
+  /// تُرجع `true` إذا نجح الدخول، و`false` إذا فشلت البصمة أو أُلغيت.
+  Future<bool> biometricLogin() async {
     final email = await _storage.read(_keyBiometricEmail);
     final password = await _storage.read(_keyBiometricPassword);
 
     if (email == null || password == null) {
-      state = state.copyWith(error: 'لا توجد بصمة محفوظة');
-      return;
+      // لا نضع خطأ في الحالة حتى لا يظهر SnackBar
+      return false;
     }
 
     final authenticated = await _biometricService.authenticate(
       reason: 'استخدم بصمتك لتسجيل الدخول كـ $email',
     );
     if (!authenticated) {
-      state = state.copyWith(error: 'فشل التحقق من البصمة');
-      return;
+      // المستخدم ألغى البصمة أو فشلت، لا نضع خطأ
+      return false;
     }
 
+    // تسجيل الدخول بالبيانات المخزنة
     await login(email, password);
+    // login ستُحدّث الحالة، نتحقق إذا نجح
+    return state.user != null;
   }
 
-  // --- تسجيل الخروج ---
+  // Future<void> logout() async {
+  //   try {
+  //     await _authRepository.logout();
+  //   } catch (_) {}
+  //   await _storage.delete('access_token');
+  //   await _storage.delete('refresh_token');
+  //   final ownerEmail = await _storage.read(_keyBiometricEmail);
+  //   final biometricAvailable = await _biometricService.isBiometricAvailable();
+  //   state = AuthState(
+  //     biometricOwnerEmail: ownerEmail,
+  //     isBiometricAvailable: biometricAvailable,
+  //     isBiometricActive: ownerEmail != null,
+  //   );
+  // }
   Future<void> logout() async {
     try {
-      await _authRepository.logout();
-    } catch (_) {}
+      await _authRepository.logout().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // تجاهل أي خطأ من الخادم
+    }
     await _storage.delete('access_token');
     await _storage.delete('refresh_token');
     final ownerEmail = await _storage.read(_keyBiometricEmail);
@@ -213,10 +327,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = AuthState(
       biometricOwnerEmail: ownerEmail,
       isBiometricAvailable: biometricAvailable,
+      isBiometricActive: ownerEmail != null,
     );
   }
 
-  // --- التحقق من الجلسة عند بدء التشغيل ---
   Future<void> checkAuth() async {
     final token = await _storage.read('access_token');
     if (token != null) {
@@ -238,6 +352,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
 }
 
 // --- Providers ---
+final isBiometricOwnerProvider = Provider<bool>((ref) {
+  return ref.watch(authNotifierProvider.select((s) => s.isBiometricActive));
+});
+
 final biometricServiceProvider = Provider<BiometricAuthService>((ref) {
   return BiometricAuthService();
 });

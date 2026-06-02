@@ -1,6 +1,8 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:laravel_flutter_app/core/network/api_client.dart';
+import 'package:laravel_flutter_app/core/network/api_client.dart'; // يحتوي secureStorageProvider
 import 'package:laravel_flutter_app/core/security/secure_storage_helper.dart';
 
 class SettingsState {
@@ -22,26 +24,49 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   SettingsNotifier(this._storage)
       : super(SettingsState(
           locale: const Locale('en'),
-          themeMode: ThemeMode.light,
+          themeMode: _getInitialThemeMode(),
         )) {
     _init();
+  }
+
+  /// تحديد الثيم الأولي من النظام دون انتظار Async
+  static ThemeMode _getInitialThemeMode() {
+    final brightness = PlatformDispatcher.instance.platformBrightness;
+    return brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light;
   }
 
   Future<void> _init() async {
     final localeCode = await _storage.read('locale_code');
     final themeCode = await _storage.read('theme_mode');
-    final locale = localeCode != null ? Locale(localeCode) : const Locale('en');
-    final themeMode = themeCode == 'dark' ? ThemeMode.dark : ThemeMode.light;
-    state = SettingsState(locale: locale, themeMode: themeMode);
+
+    // تحديث اللغة
+    Locale? locale;
+    if (localeCode != null) {
+      locale = Locale(localeCode);
+    } else {
+      final deviceLocale = PlatformDispatcher.instance.locale;
+      if (['ar', 'en'].contains(deviceLocale.languageCode)) {
+        locale = Locale(deviceLocale.languageCode);
+      }
+    }
+
+    // تحديث الثيم
+    ThemeMode? themeMode;
+    if (themeCode != null) {
+      themeMode = themeCode == 'dark' ? ThemeMode.dark : ThemeMode.light;
+    }
+
+    state = state.copyWith(
+      locale: locale ?? state.locale,
+      themeMode: themeMode ?? state.themeMode,
+    );
   }
 
-  /// تغيير اللغة وحفظها. يستخدم الطريقة المتزامنة لمنع الأخطاء.
   void setLocale(Locale locale) {
     _storage.write('locale_code', locale.languageCode);
     state = state.copyWith(locale: locale);
   }
 
-  /// تغيير السمة وحفظها.
   void setThemeMode(ThemeMode mode) {
     _storage.write('theme_mode', mode == ThemeMode.dark ? 'dark' : 'light');
     state = state.copyWith(themeMode: mode);
